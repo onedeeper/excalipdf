@@ -2,6 +2,8 @@
 
 A local-first PDF annotation tool built on [Excalidraw](https://excalidraw.com). Load a PDF, draw on it, and your annotations persist automatically.
 
+![ExcaliPDF in action](excalidraw.png)
+
 ## Features
 
 - **PDF annotation** — load any PDF and draw, sketch, or write on top of it
