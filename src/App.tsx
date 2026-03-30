@@ -24,6 +24,7 @@ const PAGE_GAP = 60;
 const SAVE_DEBOUNCE_MS = 1000;
 const MAX_FILE_SIZE_MB = 100;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+const MAX_PDF_PAGES = 200;
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 15);
@@ -32,7 +33,7 @@ function generateId(): string {
 function getSaveKey(pdfName: string): string {
   // Sanitize to alphanumeric, dots, hyphens, underscores to avoid
   // localStorage key injection via crafted filenames
-  const safe = pdfName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const safe = pdfName.replace(/[^a-zA-Z0-9._-]/g, "_").substring(0, 128);
   return `excalipdf:${safe}`;
 }
 
@@ -142,7 +143,7 @@ function App() {
       }
       setLoading(true);
       try {
-        const result = await renderPdf(file, 2);
+        const result = await renderPdf(file, 2, MAX_PDF_PAGES);
         const scene = buildSceneData(result.pages, file.name);
 
         const newTab: TabState = {
@@ -201,9 +202,12 @@ function App() {
             elements: data.elements || [],
             files: data.files || {},
             appState: {
-              ...(data.appState || {}),
               viewBackgroundColor:
                 data.appState?.viewBackgroundColor || "#f5f5f5",
+              zoom: data.appState?.zoom,
+              scrollX: data.appState?.scrollX,
+              scrollY: data.appState?.scrollY,
+              theme: data.appState?.theme,
             },
           },
         };

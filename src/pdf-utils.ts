@@ -14,12 +14,14 @@ export interface PdfPage {
 export async function renderPdf(
   file: File,
   scale = 2,
+  maxPages = 200,
 ): Promise<{ pages: PdfPage[] }> {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const pages: PdfPage[] = [];
+  const pageCount = Math.min(pdf.numPages, maxPages);
 
-  for (let i = 0; i < pdf.numPages; i++) {
+  for (let i = 0; i < pageCount; i++) {
     const page = await pdf.getPage(i + 1);
     const viewport = page.getViewport({ scale });
 
