@@ -1,7 +1,7 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { cpSync, existsSync, readFileSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, sep } from "node:path";
 
 const EXCALIDRAW_PROD = resolve(
   "node_modules/@excalidraw/excalidraw/dist/prod",
@@ -18,9 +18,15 @@ function excalidrawFonts(): Plugin {
   return {
     name: "excalidraw-fonts",
     configureServer(server) {
+      const fontsRoot = resolve(EXCALIDRAW_PROD, "fonts");
       server.middlewares.use((req, res, next) => {
         if (req.url?.startsWith("/fonts/")) {
-          const filePath = join(EXCALIDRAW_PROD, req.url);
+          const filePath = resolve(EXCALIDRAW_PROD, req.url.slice(1));
+          // Prevent path traversal — resolved path must stay inside fontsRoot
+          if (!filePath.startsWith(fontsRoot + sep)) {
+            next();
+            return;
+          }
           if (existsSync(filePath)) {
             res.setHeader("Content-Type", "font/woff2");
             res.setHeader("Cache-Control", "public, max-age=31536000");
