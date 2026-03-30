@@ -2,6 +2,8 @@
 
 A local-first PDF annotation tool built on [Excalidraw](https://excalidraw.com). Load a PDF, draw on it, and your annotations persist automatically.
 
+**Try it now:** [excalipdf.vercel.app](https://excalipdf.vercel.app/)
+
 ![ExcaliPDF in action](excalidraw.png)
 
 ## Features
