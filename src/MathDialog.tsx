@@ -10,22 +10,24 @@ interface MathDialogProps {
   onCancel: () => void;
 }
 
-export function MathDialog({
-  isOpen,
+/** Mounts/unmounts the inner dialog so state resets naturally on each open. */
+export function MathDialog({ isOpen, ...rest }: MathDialogProps) {
+  if (!isOpen) return null;
+  return <MathDialogInner {...rest} />;
+}
+
+function MathDialogInner({
   initialLatex,
   onInsert,
   onCancel,
-}: MathDialogProps) {
+}: Omit<MathDialogProps, "isOpen">) {
   const [latex, setLatex] = useState(initialLatex);
   const previewRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (isOpen) {
-      setLatex(initialLatex);
-      setTimeout(() => textareaRef.current?.focus(), 50);
-    }
-  }, [initialLatex, isOpen]);
+    setTimeout(() => textareaRef.current?.focus(), 50);
+  }, []);
 
   useEffect(() => {
     if (!previewRef.current) return;
@@ -45,7 +47,6 @@ export function MathDialog({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      // Prevent Excalidraw from capturing keys while dialog is open
       e.stopPropagation();
       if (e.key === "Escape") {
         onCancel();
@@ -55,8 +56,6 @@ export function MathDialog({
     },
     [latex, onInsert, onCancel],
   );
-
-  if (!isOpen) return null;
 
   return (
     <div className="math-overlay" onClick={onCancel} onKeyDown={handleKeyDown}>
