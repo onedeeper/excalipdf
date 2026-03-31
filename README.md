@@ -9,6 +9,7 @@ A local-first PDF annotation tool built on [Excalidraw](https://excalidraw.com).
 ## Features
 
 - **PDF annotation** — load any PDF and draw, sketch, or write on top of it
+- **LaTeX math equations** — insert rendered equations via the `f(x)` toolbar button with live preview. Double-click to re-edit.
 - **Excalidraw canvas** — full access to Excalidraw's drawing tools, shapes, and export options
 - **Multi-tab workspace** — work on multiple documents side by side
 - **Drag and drop** — drop PDFs or `.excalidraw` files to open them instantly
@@ -65,6 +66,9 @@ src/
   App.css         — layout and component styles
   index.css       — global reset
   pdf-utils.ts    — PDF-to-image rendering via pdf.js
+  latex-utils.ts  — LaTeX-to-PNG rendering via KaTeX + html2canvas
+  MathDialog.tsx  — equation input dialog with live preview
+  MathDialog.css  — dialog styles
   types.ts        — shared TypeScript interfaces
   env.d.ts        — global type declarations
 vite.config.ts    — Vite config with font plugin and security headers
@@ -76,5 +80,6 @@ index.html        — shell with CSP meta tag
 - [React 19](https://react.dev)
 - [Excalidraw](https://github.com/excalidraw/excalidraw)
 - [PDF.js](https://mozilla.github.io/pdf.js/)
+- [KaTeX](https://katex.org)
 - [Vite](https://vite.dev)
 - TypeScript (strict mode)
