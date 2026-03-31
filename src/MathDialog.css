@@ -1,0 +1,111 @@
+.math-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.math-dialog {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  width: 520px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.math-dialog h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: #333;
+}
+
+.math-input {
+  width: 100%;
+  height: 90px;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+  font-size: 14px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.math-input:focus {
+  outline: none;
+  border-color: #6965db;
+  box-shadow: 0 0 0 2px rgba(105, 101, 219, 0.15);
+}
+
+.math-preview {
+  min-height: 48px;
+  padding: 14px;
+  background: #f8f8fa;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-x: auto;
+  color: #999;
+  font-size: 0.85rem;
+}
+
+.math-hint {
+  font-size: 0.75rem;
+  color: #999;
+  text-align: right;
+}
+
+.math-hint kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  background: #f4f4f4;
+  font-family: inherit;
+  font-size: 0.75rem;
+}
+
+.math-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.math-btn {
+  padding: 8px 20px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.math-btn.cancel {
+  background: #f0f0f0;
+  color: #666;
+}
+
+.math-btn.cancel:hover {
+  background: #e4e4e4;
+}
+
+.math-btn.insert {
+  background: #6965db;
+  color: white;
+}
+
+.math-btn.insert:hover {
+  background: #5b57c9;
+}
+
+.math-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

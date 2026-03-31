@@ -17,6 +17,8 @@ import type {
 import { renderPdf } from "./pdf-utils";
 import type { PdfPage } from "./pdf-utils";
 import type { TabState, PdfSceneData } from "./types";
+import { renderLatexToImage } from "./latex-utils";
+import { MathDialog } from "./MathDialog";
 import "@excalidraw/excalidraw/index.css";
 import "./App.css";
 
@@ -101,6 +103,9 @@ function App() {
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [mathDialogOpen, setMathDialogOpen] = useState(false);
+  const [editingMathId, setEditingMathId] = useState<string | null>(null);
+  const [editingLatex, setEditingLatex] = useState("");
 
   const excalidrawAPIRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -388,6 +393,129 @@ function App() {
     [loadExcalidrawFile],
   );
 
+  // ── Math equations ──
+
+  const openMathDialog = useCallback((elementId?: string, latex?: string) => {
+    setEditingMathId(elementId ?? null);
+    setEditingLatex(latex ?? "");
+    setMathDialogOpen(true);
+  }, []);
+
+  const closeMathDialog = useCallback(() => {
+    setMathDialogOpen(false);
+    setEditingMathId(null);
+    setEditingLatex("");
+  }, []);
+
+  const handleInsertMath = useCallback(
+    async (latex: string) => {
+      const api = excalidrawAPIRef.current;
+      if (!api) return;
+      setMathDialogOpen(false);
+
+      try {
+        const result = await renderLatexToImage(latex);
+        const fileId = generateId();
+
+        // Rendered at 3x, display at 1x
+        const displayWidth = result.width / 3;
+        const displayHeight = result.height / 3;
+
+        api.addFiles([
+          {
+            mimeType: MIME_TYPES.png,
+            id: fileId as FileId,
+            dataURL: result.dataURL as BinaryFileData["dataURL"],
+            created: Date.now(),
+            lastRetrieved: Date.now(),
+          },
+        ]);
+
+        if (editingMathId) {
+          // Replace existing equation in-place
+          const elements = api.getSceneElements();
+          const old = elements.find((el) => el.id === editingMathId);
+          if (old) {
+            const skeleton = [
+              {
+                type: "image" as const,
+                id: editingMathId,
+                x: old.x,
+                y: old.y,
+                width: displayWidth,
+                height: displayHeight,
+                fileId: fileId as FileId,
+                customData: { type: "math-equation", latex },
+              },
+            ];
+            const newEl = convertToExcalidrawElements(
+              skeleton as Parameters<typeof convertToExcalidrawElements>[0],
+            );
+            api.updateScene({
+              elements: elements.map((el) =>
+                el.id === editingMathId ? newEl[0] : el,
+              ),
+            });
+          }
+        } else {
+          // Insert new equation at viewport center
+          const appState = api.getAppState();
+          const cx =
+            appState.width / (2 * appState.zoom.value) -
+            appState.scrollX -
+            displayWidth / 2;
+          const cy =
+            appState.height / (2 * appState.zoom.value) -
+            appState.scrollY -
+            displayHeight / 2;
+
+          const skeleton = [
+            {
+              type: "image" as const,
+              id: generateId(),
+              x: cx,
+              y: cy,
+              width: displayWidth,
+              height: displayHeight,
+              fileId: fileId as FileId,
+              customData: { type: "math-equation", latex },
+            },
+          ];
+          const newEl = convertToExcalidrawElements(
+            skeleton as Parameters<typeof convertToExcalidrawElements>[0],
+          );
+          api.updateScene({
+            elements: [...api.getSceneElements(), ...newEl],
+          });
+        }
+
+        setEditingMathId(null);
+        setEditingLatex("");
+      } catch (err) {
+        console.error("Failed to render equation:", err);
+        alert("Failed to render equation. Check your LaTeX syntax.");
+      }
+    },
+    [editingMathId],
+  );
+
+  const handleCanvasDoubleClick = useCallback(() => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return;
+
+    const appState = api.getAppState();
+    const selectedIds = Object.keys(appState.selectedElementIds ?? {});
+    if (selectedIds.length !== 1) return;
+
+    const el = api.getSceneElements().find((e) => e.id === selectedIds[0]);
+    if (
+      el?.type === "image" &&
+      el.customData?.type === "math-equation"
+    ) {
+      openMathDialog(el.id, el.customData.latex);
+    }
+  }, [openMathDialog]);
+
   // ── Render ──
 
   // No tabs: show drop zone
@@ -493,11 +621,25 @@ function App() {
       )}
 
       {activeTab && (
-        <div className="excalidraw-wrapper" key={activeTab.id}>
+        <div
+          className="excalidraw-wrapper"
+          key={activeTab.id}
+          onDoubleClick={handleCanvasDoubleClick}
+        >
           <Excalidraw
             excalidrawAPI={onExcalidrawAPI}
             onChange={handleChange}
             initialData={getInitialData(activeTab)}
+            renderTopRightUI={() => (
+              <button
+                className="math-tool-btn"
+                onClick={() => openMathDialog()}
+                title="Insert equation"
+              >
+                <i>f</i>
+                <span>(x)</span>
+              </button>
+            )}
           >
             <MainMenu>
               <MainMenu.Item onSelect={() => newCanvas()}>
@@ -520,6 +662,13 @@ function App() {
           </Excalidraw>
         </div>
       )}
+
+      <MathDialog
+        isOpen={mathDialogOpen}
+        initialLatex={editingLatex}
+        onInsert={handleInsertMath}
+        onCancel={closeMathDialog}
+      />
     </div>
   );
 }
