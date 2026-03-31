@@ -12,11 +12,12 @@ export interface PdfPage {
 }
 
 export async function renderPdf(
-  file: File,
+  source: File | ArrayBuffer,
   scale = 2,
   maxPages = 200,
 ): Promise<{ pages: PdfPage[] }> {
-  const arrayBuffer = await file.arrayBuffer();
+  const arrayBuffer =
+    source instanceof ArrayBuffer ? source : await source.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const pages: PdfPage[] = [];
   const pageCount = Math.min(pdf.numPages, maxPages);

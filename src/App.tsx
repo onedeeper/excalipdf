@@ -19,11 +19,13 @@ import type { PdfPage } from "./pdf-utils";
 import type { TabState, PdfSceneData } from "./types";
 import { renderLatexToImage } from "./latex-utils";
 import { MathDialog } from "./MathDialog";
+import { scenes, pdfs } from "./idb";
 import "@excalidraw/excalidraw/index.css";
 import "./App.css";
 
 const PAGE_GAP = 60;
-const SAVE_DEBOUNCE_MS = 1000;
+const SAVE_DEBOUNCE_MS = 2000;
+const SESSION_KEY = "excalipdf:session";
 const MAX_FILE_SIZE_MB = 100;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 const MAX_PDF_PAGES = 200;
@@ -96,11 +98,48 @@ function buildSceneData(pages: PdfPage[], pdfName: string): PdfSceneData {
   };
 }
 
+function pickAppState(appState: Record<string, unknown>) {
+  return {
+    viewBackgroundColor: appState.viewBackgroundColor,
+    zoom: appState.zoom,
+    scrollX: appState.scrollX,
+    scrollY: appState.scrollY,
+    theme: appState.theme,
+  };
+}
+
+// ── Session persistence ────────────────────────────────────
+
+interface TabMeta {
+  id: string;
+  name: string;
+  type: "pdf" | "excalidraw";
+}
+
+function loadSessionMeta(): { tabs: TabMeta[]; activeTabId: string | null } {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return { tabs: [], activeTabId: null };
+    return JSON.parse(raw);
+  } catch {
+    return { tabs: [], activeTabId: null };
+  }
+}
+
+function saveSessionMeta(tabs: TabMeta[], activeTabId: string | null) {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tabs, activeTabId }));
+  } catch {
+    // quota
+  }
+}
+
 // ── App ─────────────────────────────────────────────────────
 
 function App() {
   const [tabs, setTabs] = useState<TabState[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(true);
   const [loading, setLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [mathDialogOpen, setMathDialogOpen] = useState(false);
@@ -114,6 +153,147 @@ function App() {
   const activeTab = useMemo(
     () => tabs.find((t) => t.id === activeTabId) ?? null,
     [tabs, activeTabId],
+  );
+
+  // ── Restore session from IndexedDB on mount ──
+
+  useEffect(() => {
+    const meta = loadSessionMeta();
+    if (meta.tabs.length === 0) {
+      setRestoring(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      const restoredTabs: TabState[] = [];
+
+      for (const m of meta.tabs) {
+        if (cancelled) return;
+
+        if (m.type === "pdf") {
+          // Re-render PDF from stored buffer
+          try {
+            const buffer = await pdfs.load(m.id);
+            if (!buffer || cancelled) continue;
+            const result = await renderPdf(buffer, 2, MAX_PDF_PAGES);
+            const scene = buildSceneData(result.pages, m.name);
+            restoredTabs.push({
+              id: m.id,
+              name: m.name,
+              type: "pdf",
+              pdfPages: result.pages,
+              pdfElementIds: scene.pdfElementIds,
+              sceneSnapshot: null,
+              initialScene: {
+                elements: scene.elements,
+                files: scene.files,
+                appState: { viewBackgroundColor: "#f5f5f5" },
+              },
+            });
+          } catch {
+            pdfs.remove(m.id).catch(() => {});
+          }
+        } else {
+          // Load excalidraw scene
+          try {
+            const scene = await scenes.load<{
+              elements: ExcalidrawElement[];
+              files: BinaryFiles;
+              appState: Record<string, unknown>;
+            }>(m.id);
+            if (!scene || cancelled) continue;
+            restoredTabs.push({
+              id: m.id,
+              name: m.name,
+              type: "excalidraw",
+              pdfPages: null,
+              pdfElementIds: new Set(),
+              sceneSnapshot: null,
+              initialScene: {
+                elements: scene.elements ?? [],
+                files: scene.files ?? {},
+                appState: scene.appState ?? { viewBackgroundColor: "#ffffff" },
+              },
+            });
+          } catch {
+            scenes.remove(m.id).catch(() => {});
+          }
+        }
+      }
+
+      if (cancelled) return;
+
+      if (restoredTabs.length > 0) {
+        setTabs(restoredTabs);
+        const activeId = restoredTabs.some((t) => t.id === meta.activeTabId)
+          ? meta.activeTabId
+          : restoredTabs[0].id;
+        setActiveTabId(activeId);
+      }
+      setRestoring(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ── Save session metadata whenever tabs change ──
+
+  useEffect(() => {
+    if (restoring) return;
+    saveSessionMeta(
+      tabs.map((t) => ({ id: t.id, name: t.name, type: t.type })),
+      activeTabId,
+    );
+  }, [tabs, activeTabId, restoring]);
+
+  // ── Export scene as .excalidraw file ──
+
+  const exportScene = useCallback(
+    (tab: TabState) => {
+      const api = excalidrawAPIRef.current;
+      // Use live data if this is the active tab, otherwise use snapshot
+      const elements =
+        tab.id === activeTabId && api
+          ? api.getSceneElements()
+          : (tab.sceneSnapshot?.elements ?? tab.initialScene.elements);
+      const files =
+        tab.id === activeTabId && api
+          ? api.getFiles()
+          : (tab.sceneSnapshot?.files ?? tab.initialScene.files);
+      const appState =
+        tab.id === activeTabId && api
+          ? api.getAppState()
+          : (tab.sceneSnapshot?.appState ?? tab.initialScene.appState ?? {});
+
+      const data = JSON.stringify(
+        {
+          type: "excalidraw",
+          version: 2,
+          elements: Array.from(elements).filter((el) => !el.isDeleted),
+          files,
+          appState: {
+            viewBackgroundColor:
+              (appState as Record<string, unknown>).viewBackgroundColor ??
+              "#ffffff",
+          },
+        },
+        null,
+        2,
+      );
+
+      const blob = new Blob([data], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = tab.name.replace(/\.[^.]+$/, "") + ".excalidraw";
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+    [activeTabId],
   );
 
   // ── Snapshot active tab before switching ──
@@ -148,7 +328,8 @@ function App() {
       }
       setLoading(true);
       try {
-        const result = await renderPdf(file, 2, MAX_PDF_PAGES);
+        const buffer = await file.arrayBuffer();
+        const result = await renderPdf(buffer, 2, MAX_PDF_PAGES);
         const scene = buildSceneData(result.pages, file.name);
 
         const newTab: TabState = {
@@ -168,6 +349,7 @@ function App() {
         snapshotActiveTab();
         setTabs((prev) => [...prev, newTab]);
         setActiveTabId(newTab.id);
+        pdfs.save(newTab.id, buffer).catch(() => {});
       } catch (err) {
         console.error("Failed to render PDF:", err);
         alert("Failed to render PDF. Make sure it's a valid PDF file.");
@@ -276,6 +458,17 @@ function App() {
 
   const closeTab = useCallback(
     (tabId: string) => {
+      const tab = tabs.find((t) => t.id === tabId);
+      if (tab) {
+        const save = window.confirm(
+          `Save "${tab.name}" as .excalidraw file before closing?`,
+        );
+        if (save) exportScene(tab);
+      }
+
+      scenes.remove(tabId).catch(() => {});
+      pdfs.remove(tabId).catch(() => {});
+
       setTabs((prev) => {
         const idx = prev.findIndex((t) => t.id === tabId);
         const newTabs = prev.filter((t) => t.id !== tabId);
@@ -293,7 +486,7 @@ function App() {
         return newTabs;
       });
     },
-    [activeTabId],
+    [activeTabId, tabs, exportScene],
   );
 
   // ── Excalidraw callbacks ──
@@ -313,25 +506,99 @@ function App() {
 
   const handleChange = useCallback(
     (elements: readonly ExcalidrawElement[]) => {
-      if (!activeTab || activeTab.type !== "pdf") return;
+      if (!activeTab) return;
 
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
-        const annotations = elements.filter(
-          (el) => !activeTab.pdfElementIds.has(el.id) && !el.isDeleted,
-        );
-        try {
-          localStorage.setItem(
-            getSaveKey(activeTab.name),
-            JSON.stringify(annotations),
+        const api = excalidrawAPIRef.current;
+        if (!api) return;
+
+        const liveElements = elements.filter((el) => !el.isDeleted);
+        const files = api.getFiles();
+        const appState = api.getAppState();
+
+        if (activeTab.type === "pdf") {
+          // Save annotations to localStorage (keyed by PDF name)
+          const annotations = liveElements.filter(
+            (el) => !activeTab.pdfElementIds.has(el.id),
           );
-        } catch {
-          // localStorage full
+          try {
+            localStorage.setItem(
+              getSaveKey(activeTab.name),
+              JSON.stringify(annotations),
+            );
+          } catch {
+            // localStorage full
+          }
         }
+
+        // Save full scene to IndexedDB (.excalidraw format, no size limit)
+        scenes
+          .save(activeTab.id, {
+            elements: liveElements,
+            files,
+            appState: pickAppState(appState),
+          })
+          .catch(() => {});
       }, SAVE_DEBOUNCE_MS);
     },
     [activeTab],
   );
+
+  // Warn before closing window and flush saves
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (tabs.length === 0) return;
+
+      // Flush pending auto-save
+      clearTimeout(saveTimerRef.current);
+      const api = excalidrawAPIRef.current;
+      if (api && activeTabId) {
+        const tab = tabs.find((t) => t.id === activeTabId);
+        if (tab) {
+          const elements = api
+            .getSceneElements()
+            .filter((el) => !el.isDeleted);
+          const files = api.getFiles();
+          const appState = api.getAppState();
+
+          if (tab.type === "pdf") {
+            try {
+              const annotations = elements.filter(
+                (el) => !tab.pdfElementIds.has(el.id),
+              );
+              localStorage.setItem(
+                getSaveKey(tab.name),
+                JSON.stringify(annotations),
+              );
+            } catch {
+              // quota
+            }
+          }
+
+          scenes
+            .save(tab.id, {
+              elements,
+              files,
+              appState: {
+                viewBackgroundColor: appState.viewBackgroundColor,
+                zoom: appState.zoom,
+                scrollX: appState.scrollX,
+                scrollY: appState.scrollY,
+                theme: appState.theme,
+              },
+            })
+            .catch(() => {});
+        }
+      }
+
+      // Browser shows "Leave site?" dialog
+      e.preventDefault();
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [activeTabId, tabs]);
 
   useEffect(() => {
     return () => clearTimeout(saveTimerRef.current);
@@ -518,7 +785,7 @@ function App() {
 
   // ── Render ──
 
-  // No tabs: show drop zone
+  // No tabs: show drop zone (or loading spinner during restore)
   if (tabs.length === 0) {
     return (
       <div
@@ -537,10 +804,10 @@ function App() {
         <div
           className={`dropzone ${dragOver ? "drag-over" : ""} ${loading ? "loading" : ""}`}
         >
-          {loading ? (
+          {loading || restoring ? (
             <div className="loading-spinner">
               <div className="spinner" />
-              <p>Loading...</p>
+              <p>{restoring ? "Restoring session..." : "Loading..."}</p>
             </div>
           ) : (
             <>
